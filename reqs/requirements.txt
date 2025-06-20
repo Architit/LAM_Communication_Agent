@@ -1,1 +1,5 @@
-openai\nrequests\npython-dotenv
+ruff
+pytest
+mypy
+black
+
