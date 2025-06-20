@@ -38,6 +38,15 @@ class ComAgent:
         """Возвращает список имён зарегистрированных агентов."""
         return list(self.agent_registry.keys())
 
+    # ───────────────────────── I/O wrapper methods
+    def input(self) -> Tuple[str, dict]:
+        """Публичная точка чтения сообщений (обёртка над receive_data)."""
+        return self.receive_data()
+
+    def output(self, agent_name: str, data: dict) -> bool:
+        """Публичная точка отправки сообщений (обёртка над send_data)."""
+        return self.send_data(agent_name, data)
+
     def send_data(self, agent_name: str, data: dict) -> bool:
         """Отправляет данные указанному агенту."""
         if agent_name not in self.agent_registry:
