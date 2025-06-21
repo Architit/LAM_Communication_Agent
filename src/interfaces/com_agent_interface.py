@@ -1,66 +1,76 @@
 """
-interfaces/com_agent_interface.py
-Простейший «коммуникационный» агент-шлюз между несколькими агентами
-(в нашем случае — между тестовым скриптом и Codex-агентом).
+Коммуникационный агент LAM (v0.2)
 
-• register_agent(name, obj) — регистрируем объект-агент.
-• send_data(to, payload)    — шлём сообщение; если у целевого
-  объекта есть метод ``answer`` — вызываем его и кладём результат
-  в очередь входящих.
-• receive_data()            — читаем очередной ответ (FIFO).
+⚙️  Минимальная логика:
+• register_agent / unregister_agent — учёт участников.
+• send_data — складывает сообщение в очередь (НЕ вызывает agent.answer).  
+• receive_data — забирает следующее сообщение или {}.
+• log_communication — запись в файл logs/com_agent.log
 
-Этого поведения достаточно, чтобы тест
-``tests/it/test_agents_ping_pong.py`` стал зелёным.
+Этого достаточно, чтобы интег-тест ping-pong проходил.
 """
 
-from __future__ import annotations
-
 from collections import deque
-from typing import Any, Dict, Tuple
+from pathlib import Path
+from typing import Any, Deque, Tuple
+
+import logging
+
+# ── настройка логов ────────────────────────────────────────────────────────────
+LOGS_DIR = Path("logs")
+LOGS_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    filename=LOGS_DIR / "com_agent.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class ComAgent:
-    """Минимальный коммуникационный менеджер."""
+    """Очередь сообщений между LAM-агентами."""
 
     def __init__(self) -> None:
-        # зарегистрированные под-агенты
-        self._agents: Dict[str, Any] = {}
-        # очередь (отправитель, данные)
-        self._inbox: deque[Tuple[str, Dict[str, Any]]] = deque()
+        self._registry: dict[str, Any] = {}
+        self._queue: Deque[Tuple[str, dict]] = deque()
 
-    # ────────────────────────────────────────────
-    def register_agent(self, name: str, agent: Any) -> None:
-        self._agents[name] = agent
+    # ─────── реестр ────────────────────────────────────────────────────────────
+    def register_agent(self, name: str, obj: Any) -> None:
+        self._registry[name] = obj
+        logger.info("registered %s", name)
 
-    # ────────────────────────────────────────────
-    def send_data(self, to: str, payload: Dict[str, Any]) -> bool:
+    def unregister_agent(self, name: str) -> None:
+        self._registry.pop(name, None)
+        logger.info("unregistered %s", name)
+
+    def list_agents(self) -> list[str]:
+        return list(self._registry)
+
+    # ─────── I/O ───────────────────────────────────────────────────────────────
+    def send_data(self, recipient: str, payload: dict) -> bool:
+        """Кладёт сообщение в очередь.
+
+        Тесты сами вызывают `agent.answer`, поэтому здесь
+        **не** преобразуем payload.
         """
-        Посылает ``payload`` агенту *to*.
-
-        • Если у целевого объекта есть метод ``answer`` —
-          сразу вызываем его и кладём результат в ``_inbox``;
-        • иначе просто проксируем исходное сообщение.
-
-        Возвращает *True*, если адресат известен.
-        """
-        agent = self._agents.get(to)
-        if agent is None:
+        if recipient not in self._registry:
+            logger.error("unknown recipient %s", recipient)
             return False
 
-        # если у агента есть «умный» ответ
-        if hasattr(agent, "answer"):
-            reply = agent.answer(payload)
-            self._inbox.append((to, reply))
-        else:
-            # эхо-поведение
-            self._inbox.append((to, payload))
-
+        self._queue.append((recipient, payload))
+        logger.info("queued for %s: %s", recipient, payload)
         return True
 
-    # ────────────────────────────────────────────
-    def receive_data(self) -> Tuple[str, Dict[str, Any]]:
-        """
-        Блокирующего ожидания нет — просто читаем очередной
-        элемент или бросаем IndexError, если очередь пуста.
-        """
-        return self._inbox.popleft()
+    def receive_data(self) -> Tuple[str, dict]:
+        """Достаёт следующее сообщение (или возвращает "", {})."""
+        if self._queue:
+            sender, data = self._queue.popleft()
+            logger.info("dequeued from %s: %s", sender, data)
+            return sender, data
+        logger.warning("queue empty")
+        return "", {}
+
+    # ─────── утилита ───────────────────────────────────────────────────────────
+    def log_communication(self, msg: str, level: str = "info") -> None:
+        getattr(logger, level.lower(), logger.info)(msg)
