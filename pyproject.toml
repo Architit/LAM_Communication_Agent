@@ -1,9 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "lam-comunication-agent"
+name = "lam-comm-agent"
 version = "0.1.0"
-description = "Communication agent for the LAM ecosystem"
+description = "In-process communication bus for LAM agents"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
+
+[project.scripts]
+lam-comm-agent = "src.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
 
 [tool.pytest.ini_options]
 addopts = "-q"
