@@ -45,6 +45,10 @@ class Envelope:
         )
 
     @classmethod
+    def validate(cls, data: Dict[str, Any]) -> None:
+        cls.from_dict(data)
+
+    @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Envelope":
         required = {"id", "to", "from", "type", "topic", "ts", "payload", "meta"}
         missing = required.difference(data.keys())
@@ -112,6 +116,7 @@ class ComAgent:
 
         self._setup_logging()
         self._ensure_dirs()
+        self._load_journal()
 
     def _setup_logging(self) -> None:
         self._log_dir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +133,83 @@ class ComAgent:
     def _append_jsonl(self, path: Path, record: Dict[str, Any]) -> None:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+    def _load_journal(self) -> None:
+        if not self._queue_path.exists() and not self._dlq_path.exists():
+            return
+
+        timeline: Dict[str, Tuple[int, str, Envelope]] = {}
+        order = 0
+
+        def mark(state: str, envelope: Envelope) -> None:
+            nonlocal order
+            order += 1
+            timeline[envelope.id] = (order, state, envelope)
+
+        if self._queue_path.exists():
+            with self._queue_path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        self._logger.warning("Journal parse error, skipping line")
+                        continue
+                    event = record.get("event")
+                    envelope_data = record.get("envelope")
+                    if not event or not envelope_data:
+                        continue
+                    try:
+                        envelope = Envelope.from_dict(envelope_data)
+                    except ValueError:
+                        self._logger.warning("Journal envelope invalid, skipping")
+                        continue
+                    if event in {"send", "retry"}:
+                        mark("pending", envelope)
+                    elif event == "receive":
+                        mark("inflight", envelope)
+                    elif event in {"ack", "dlq"}:
+                        mark("done", envelope)
+
+        if self._dlq_path.exists():
+            with self._dlq_path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        self._logger.warning("DLQ parse error, skipping line")
+                        continue
+                    envelope_data = record.get("envelope")
+                    if not envelope_data:
+                        continue
+                    try:
+                        envelope = Envelope.from_dict(envelope_data)
+                    except ValueError:
+                        self._logger.warning("DLQ envelope invalid, skipping")
+                        continue
+                    mark("done", envelope)
+
+        if not timeline:
+            return
+
+        now = int(time.time())
+        pending = 0
+        inflight = 0
+        for _, state, envelope in sorted(timeline.values(), key=lambda item: item[0]):
+            if state == "pending":
+                self._queue.append(envelope)
+                pending += 1
+            elif state == "inflight":
+                if int(envelope.meta.get("available_at", 0)) < now:
+                    envelope.meta["available_at"] = now
+                self._queue.append(envelope)
+                inflight += 1
+
+        if pending or inflight:
+            self._logger.info("Loaded %s pending, %s inflight messages", pending, inflight)
 
     def register_agent(self, agent_name: str, agent_obj: Any) -> None:
         self.agent_registry[agent_name] = agent_obj
@@ -183,7 +265,7 @@ class ComAgent:
             return False
         return self.send_envelope(envelope)
 
-    def receive_data(self, timeout_s: float = 1.0) -> Tuple[str, Dict[str, Any]]:
+    def receive_data(self, timeout_s: float = 1.0) -> Optional[Tuple[str, Dict[str, Any]]]:
         start = time.monotonic()
         while True:
             envelope = self._pop_available()
@@ -199,7 +281,7 @@ class ComAgent:
 
             if time.monotonic() - start >= timeout_s:
                 self._logger.warning("Receive timeout after %.2fs", timeout_s)
-                return "", {}
+                return None
 
             time.sleep(self._receive_poll_s)
 
@@ -243,6 +325,14 @@ class ComAgent:
             self._logger.warning("Retry %s in %ss", message_id, backoff)
             return
 
+        self._append_jsonl(
+            self._queue_path,
+            {
+                "event": "dlq",
+                "envelope": envelope.to_dict(),
+                "error": error,
+            },
+        )
         self._append_jsonl(
             self._dlq_path,
             {

@@ -1,0 +1,31 @@
+[project]
+name = "lam-comunication-agent"
+version = "0.1.0"
+description = "Communication agent for the LAM ecosystem"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["src/tests"]
+pythonpath = ["."]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true

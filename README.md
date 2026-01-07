@@ -27,8 +27,9 @@ bus.send_data(
     meta={"trace_id": "t-001", "priority": 5},
 )
 
-name, message = bus.receive_data(timeout_s=1.0)
-if message:
+result = bus.receive_data(timeout_s=1.0)
+if result:
+    name, message = result
     bus.ack(message["id"], success=True)
 ```
 
@@ -51,3 +52,4 @@ if message:
 - Logging for send/receive/ack/retry
 - Memory buffer + JSONL journal (`data/queue.jsonl`)
 - Task retries with backoff and DLQ (`data/dlq.jsonl`)
+- Automatic queue recovery on startup from JSONL
