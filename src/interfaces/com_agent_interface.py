@@ -54,12 +54,12 @@ class ComAgent:
     # ─────── реестр ────────────────────────────────────────────────────────────
     def register_agent(self, name: str, obj: Any) -> None:
         self._registry[name] = obj
-        # низкий шум: не comm.enqueue/comm.dequeue
-        lam_log("comm.registry", action="register", agent=name)
+        # низкий шум: не comm.enqueue/comm.dequeue, а отдельное событие
+        lam_log("debug", "comm.registry", "register", action="register", agent=name)
 
     def unregister_agent(self, name: str) -> None:
         self._registry.pop(name, None)
-        lam_log("comm.registry", action="unregister", agent=name)
+        lam_log("debug", "comm.registry", "unregister", action="unregister", agent=name)
 
     def list_agents(self) -> list[str]:
         return list(self._registry)
@@ -72,8 +72,7 @@ class ComAgent:
         **не** преобразуем payload.
         """
         if recipient not in self._registry:
-            # comm.enqueue (ошибка) — минимально и структурно
-            lam_log("comm.enqueue", status="error", recipient=recipient, error="unknown_recipient")
+            lam_log("error", "comm.enqueue", "unknown recipient", recipient=recipient, error="unknown_recipient")
             return False
 
         self._queue.append((recipient, payload))
@@ -82,10 +81,10 @@ class ComAgent:
         if not isinstance(ctx, dict):
             ctx = {}
 
-        # comm.enqueue — JSONL + авто-inject контекста (если есть ContextVar)
         lam_log(
+            "info",
             "comm.enqueue",
-            status="ok",
+            "enqueue",
             recipient=recipient,
             intent=payload.get("intent") if isinstance(payload, dict) else None,
             task_id=ctx.get("task_id"),
@@ -103,9 +102,10 @@ class ComAgent:
             if not isinstance(ctx, dict):
                 ctx = {}
 
-            # comm.dequeue — JSONL + фильтрация через env (LAM_LOG_LEVEL/LAM_LOG_EVENTS)
             lam_log(
+                "info",
                 "comm.dequeue",
+                "dequeue",
                 sender=sender,
                 status=status,
                 task_id=ctx.get("task_id"),
@@ -122,4 +122,4 @@ class ComAgent:
     # ─────── утилита ───────────────────────────────────────────────────────────
     def log_communication(self, msg: str, level: str = "info") -> None:
         # Legacy API: пусть пишет через lam_logging
-        lam_log("comm.legacy", level=level.lower(), message=msg)
+        lam_log(level.lower(), "comm.legacy", msg, message=msg)
