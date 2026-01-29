@@ -3,29 +3,17 @@
 
 ⚙️  Минимальная логика:
 • register_agent / unregister_agent — учёт участников.
-• send_data — складывает сообщение в очередь (НЕ вызывает agent.answer).  
+• send_data — складывает сообщение в очередь (НЕ вызывает agent.answer).
 • receive_data — забирает следующее сообщение или {}.
-• log_communication — запись в файл logs/com_agent.log
+• log_communication — запись события через lam_logging (JSONL)
 
 Этого достаточно, чтобы интег-тест ping-pong проходил.
 """
 
 from collections import deque
-from pathlib import Path
 from typing import Any, Deque, Tuple
 
-import logging
-
-# ── настройка логов ────────────────────────────────────────────────────────────
-LOGS_DIR = Path("logs")
-LOGS_DIR.mkdir(exist_ok=True)
-
-logging.basicConfig(
-    filename=LOGS_DIR / "com_agent.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
+from lam_logging import log as lam_log
 
 
 def _looks_like_reply(payload: dict) -> bool:
@@ -66,11 +54,12 @@ class ComAgent:
     # ─────── реестр ────────────────────────────────────────────────────────────
     def register_agent(self, name: str, obj: Any) -> None:
         self._registry[name] = obj
-        logger.info("registered %s", name)
+        # низкий шум: не comm.enqueue/comm.dequeue
+        lam_log("comm.registry", action="register", agent=name)
 
     def unregister_agent(self, name: str) -> None:
         self._registry.pop(name, None)
-        logger.info("unregistered %s", name)
+        lam_log("comm.registry", action="unregister", agent=name)
 
     def list_agents(self) -> list[str]:
         return list(self._registry)
@@ -83,24 +72,54 @@ class ComAgent:
         **не** преобразуем payload.
         """
         if recipient not in self._registry:
-            logger.error("unknown recipient %s", recipient)
+            # comm.enqueue (ошибка) — минимально и структурно
+            lam_log("comm.enqueue", status="error", recipient=recipient, error="unknown_recipient")
             return False
 
         self._queue.append((recipient, payload))
-        logger.info("queued for %s: %s", recipient, payload)
+
+        ctx = payload.get("context") if isinstance(payload, dict) else None
+        if not isinstance(ctx, dict):
+            ctx = {}
+
+        # comm.enqueue — JSONL + авто-inject контекста (если есть ContextVar)
+        lam_log(
+            "comm.enqueue",
+            status="ok",
+            recipient=recipient,
+            intent=payload.get("intent") if isinstance(payload, dict) else None,
+            task_id=ctx.get("task_id"),
+            trace_id=ctx.get("trace_id"),
+        )
         return True
 
     def receive_data(self) -> Tuple[str, dict]:
         """Достаёт следующее сообщение (или возвращает "", {})."""
         if self._queue:
             sender, data = self._queue.popleft()
-            logger.info("dequeued from %s: %s", sender, data)
+
+            status = data.get("status") if isinstance(data, dict) else None
+            ctx = data.get("context") if isinstance(data, dict) else None
+            if not isinstance(ctx, dict):
+                ctx = {}
+
+            # comm.dequeue — JSONL + фильтрация через env (LAM_LOG_LEVEL/LAM_LOG_EVENTS)
+            lam_log(
+                "comm.dequeue",
+                sender=sender,
+                status=status,
+                task_id=ctx.get("task_id"),
+                trace_id=ctx.get("trace_id"),
+            )
+
             if isinstance(data, dict) and _looks_like_reply(data):
                 data = _enforce_envelope(data)
             return sender, data
-        logger.warning("queue empty")
+
+        # шум минимальный: empty не логируем (часто в тестах)
         return "", {}
 
     # ─────── утилита ───────────────────────────────────────────────────────────
     def log_communication(self, msg: str, level: str = "info") -> None:
-        getattr(logger, level.lower(), logger.info)(msg)
+        # Legacy API: пусть пишет через lam_logging
+        lam_log("comm.legacy", level=level.lower(), message=msg)
