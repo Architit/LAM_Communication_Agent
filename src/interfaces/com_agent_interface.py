@@ -28,6 +28,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _looks_like_reply(payload: dict) -> bool:
+    # не трогаем обычные task payload
+    markers = {
+        "status", "provider_used", "latency_ms", "attempts", "selected_chain",
+        "errors", "tokens", "usage", "result", "error", "metrics",
+    }
+    return any(k in payload for k in markers)
+
+
+def _enforce_envelope(reply: dict) -> dict:
+    # Envelope Standard v1: status/context/result/error/metrics всегда есть
+    reply.setdefault("status", "ok")
+
+    ctx = reply.get("context")
+    if not isinstance(ctx, dict):
+        ctx = {}
+    reply["context"] = ctx
+
+    reply.setdefault("result", reply.get("result"))
+    reply.setdefault("error", None)
+    reply.setdefault("metrics", {})
+
+    if reply.get("status") != "ok" and reply.get("error") is None:
+        reply["error"] = {"message": "unknown error"}
+
+    return reply
+
+
 class ComAgent:
     """Очередь сообщений между LAM-агентами."""
 
@@ -67,6 +95,8 @@ class ComAgent:
         if self._queue:
             sender, data = self._queue.popleft()
             logger.info("dequeued from %s: %s", sender, data)
+            if isinstance(data, dict) and _looks_like_reply(data):
+                data = _enforce_envelope(data)
             return sender, data
         logger.warning("queue empty")
         return "", {}
