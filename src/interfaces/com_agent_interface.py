@@ -94,6 +94,8 @@ class ComAgent:
             intent=payload.get("intent") if isinstance(payload, dict) else None,
             task_id=ctx.get("task_id"),
             trace_id=ctx.get("trace_id"),
+            parent_task_id=ctx.get("parent_task_id"),
+            span_id=ctx.get("span_id"),
         )
         return True
 
@@ -115,6 +117,8 @@ class ComAgent:
                 status=status,
                 task_id=ctx.get("task_id"),
                 trace_id=ctx.get("trace_id"),
+                parent_task_id=ctx.get("parent_task_id"),
+                span_id=ctx.get("span_id"),
             )
 
             if isinstance(data, dict) and _looks_like_reply(data):
