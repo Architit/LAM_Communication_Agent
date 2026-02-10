@@ -20,7 +20,7 @@ def _looks_like_reply(payload: dict) -> bool:
     # не трогаем обычные task payload
     markers = {
         "status", "provider_used", "latency_ms", "attempts", "selected_chain",
-        "errors", "tokens", "usage", "result", "error", "metrics",
+        "errors", "tokens", "usage", "reply", "result", "error", "metrics",
     }
     return any(k in payload for k in markers)
 
@@ -34,7 +34,12 @@ def _enforce_envelope(reply: dict) -> dict:
         ctx = {}
     reply["context"] = ctx
 
-    reply.setdefault("result", reply.get("result"))
+    if "result" not in reply:
+        if "reply" in reply:
+            reply["result"] = {"reply": reply.get("reply")}
+        else:
+            reply["result"] = reply.get("result")
+    
     reply.setdefault("error", None)
     reply.setdefault("metrics", {})
 
