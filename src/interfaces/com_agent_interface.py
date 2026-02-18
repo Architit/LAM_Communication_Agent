@@ -13,7 +13,11 @@
 from collections import deque
 from typing import Any, Deque, Tuple
 
-from lam_logging import log as lam_log
+try:
+    from lam_logging import log as lam_log
+except Exception:
+    def lam_log(*_args, **_kwargs) -> None:  # type: ignore[no-redef]
+        return
 
 
 def _looks_like_reply(payload: dict) -> bool:
