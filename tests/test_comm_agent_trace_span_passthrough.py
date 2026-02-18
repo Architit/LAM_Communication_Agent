@@ -1,4 +1,4 @@
-from src.interfaces.com_agent_interface import ComAgent
+from interfaces.com_agent_interface import ComAgent
 
 
 def test_comm_agent_preserves_span_and_parent_ids() -> None:
