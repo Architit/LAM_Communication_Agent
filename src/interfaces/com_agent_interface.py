@@ -11,9 +11,26 @@
 """
 
 from collections import deque
+import json
+import logging
 from typing import Any, Deque, Tuple
 
-from lam_logging import log as lam_log
+try:
+    from lam_logging import log as lam_log
+except ModuleNotFoundError:  # pragma: no cover - depends on embedding environment
+    _fallback_logger = logging.getLogger(__name__)
+
+    def lam_log(level: str, component: str, message: str, **fields: Any) -> None:
+        log_fn = getattr(_fallback_logger, level.lower(), _fallback_logger.info)
+        if fields:
+            log_fn(
+                "%s | %s | %s",
+                component,
+                message,
+                json.dumps(fields, ensure_ascii=True, default=str),
+            )
+            return
+        log_fn("%s | %s", component, message)
 
 
 def _looks_like_reply(payload: dict) -> bool:
