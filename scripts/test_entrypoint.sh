@@ -5,7 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:--p no:cacheprovider}"
-
 export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 PYTEST_BIN=""
@@ -53,11 +52,14 @@ case "${1:---all}" in
   --governance)
     "$PYTEST_BIN" -q tests -k governance
     ;;
+  --patch-runtime)
+    "$PYTEST_BIN" -q tests/test_phase_b_patch_runtime_contract.py
+    ;;
   --ci)
     "$PYTEST_BIN" -q tests --maxfail=1
     ;;
   *)
-    echo "usage: $0 [--all|--unit-only|--integration|--governance|--ci]"
+    echo "usage: $0 [--all|--unit-only|--integration|--governance|--patch-runtime|--ci]"
     exit 2
     ;;
 esac

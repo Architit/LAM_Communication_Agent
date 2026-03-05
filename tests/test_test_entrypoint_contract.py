@@ -8,4 +8,6 @@ def test_test_entrypoint_modes_declared():
     assert "--all" in text
     assert "--unit-only" in text
     assert "--integration" in text
+    assert "--governance" in text
+    assert "--patch-runtime" in text
     assert "--ci" in text
