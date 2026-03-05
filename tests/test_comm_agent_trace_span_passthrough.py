@@ -18,6 +18,7 @@ def test_comm_agent_preserves_span_and_parent_ids() -> None:
     }
 
     c.register_agent("x", object())
+    c.set_credit("x", 1)
     assert c.send_data("x", payload)
 
     _, out = c.receive_data()

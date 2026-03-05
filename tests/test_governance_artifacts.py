@@ -25,3 +25,13 @@ def test_protocol_sync_header_present():
     text = (REPO_ROOT / "INTERACTION_PROTOCOL.md").read_text(encoding="utf-8")
     assert "protocol_source: RADRILONIUMA-PROJECT" in text
     assert "protocol_version: v1.0.0" in text
+
+
+def test_comm_envelope_and_backpressure_markers_present():
+    text = (REPO_ROOT / "src" / "interfaces" / "com_agent_interface.py").read_text(
+        encoding="utf-8"
+    )
+    assert "msg_type" in text
+    assert "msgpack_payload" in text
+    assert "credit_delta" in text
+    assert "credit_exhausted" in text

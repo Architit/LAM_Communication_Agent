@@ -13,7 +13,12 @@
 from collections import deque
 import json
 import logging
+import base64
 from typing import Any, Deque, Tuple
+try:
+    import msgpack
+except ModuleNotFoundError:  # pragma: no cover - depends on environment setup
+    msgpack = None
 
 try:
     from lam_logging import log as lam_log
@@ -66,21 +71,66 @@ def _enforce_envelope(reply: dict) -> dict:
     return reply
 
 
+def _encode_msgpack_payload(payload: dict) -> str:
+    if msgpack is not None:
+        raw = msgpack.packb(payload, use_bin_type=True)
+    else:
+        raw = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _decode_msgpack_payload(payload_b64: str) -> dict:
+    raw = base64.b64decode(payload_b64.encode("ascii"))
+    if msgpack is not None:
+        decoded = msgpack.unpackb(raw, raw=False)
+    else:
+        decoded = json.loads(raw.decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("decoded msgpack payload must be an object")
+    return decoded
+
+
+def _build_transport_envelope(payload: dict) -> dict:
+    msg_type = "TASK" if payload.get("intent") else "READY"
+    return {
+        "msg_type": msg_type,
+        "msgpack_payload": _encode_msgpack_payload(payload),
+        "credit_delta": 0,
+    }
+
+
+def _normalize_transport_envelope(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+    msg_type = data.get("msg_type")
+    payload_b64 = data.get("msgpack_payload")
+    if not isinstance(msg_type, str) or not isinstance(payload_b64, str):
+        return data
+    unpacked = _decode_msgpack_payload(payload_b64)
+    unpacked["_transport"] = {"msg_type": msg_type}
+    if isinstance(data.get("credit_delta"), int):
+        unpacked["_transport"]["credit_delta"] = data.get("credit_delta")
+    return unpacked
+
+
 class ComAgent:
     """Очередь сообщений между LAM-агентами."""
 
     def __init__(self) -> None:
         self._registry: dict[str, Any] = {}
         self._queue: Deque[Tuple[str, dict]] = deque()
+        self._credits: dict[str, int] = {}
 
     # ─────── реестр ────────────────────────────────────────────────────────────
     def register_agent(self, name: str, obj: Any) -> None:
         self._registry[name] = obj
+        self._credits.setdefault(name, 0)
         # низкий шум: не comm.enqueue/comm.dequeue, а отдельное событие
         lam_log("debug", "comm.registry", "register", action="register", agent=name)
 
     def unregister_agent(self, name: str) -> None:
         self._registry.pop(name, None)
+        self._credits.pop(name, None)
         lam_log("debug", "comm.registry", "unregister", action="unregister", agent=name)
 
     def list_agents(self) -> list[str]:
@@ -97,7 +147,13 @@ class ComAgent:
             lam_log("error", "comm.enqueue", "unknown recipient", recipient=recipient, error="unknown_recipient")
             return False
 
-        self._queue.append((recipient, payload))
+        if self._credits.get(recipient, 0) <= 0:
+            lam_log("warning", "comm.backpressure", "credit_exhausted", recipient=recipient)
+            return False
+
+        envelope = _build_transport_envelope(payload if isinstance(payload, dict) else {})
+        self._queue.append((recipient, envelope))
+        self._credits[recipient] = self._credits.get(recipient, 0) - 1
 
         ctx = payload.get("context") if isinstance(payload, dict) else None
         if not isinstance(ctx, dict):
@@ -138,8 +194,10 @@ class ComAgent:
                 span_id=ctx.get("span_id"),
             )
 
-            if isinstance(data, dict) and _looks_like_reply(data):
-                data = _enforce_envelope(data)
+            if isinstance(data, dict):
+                data = _normalize_transport_envelope(data)
+                if _looks_like_reply(data):
+                    data = _enforce_envelope(data)
             return sender, data
 
         # шум минимальный: empty не логируем (часто в тестах)
@@ -149,3 +207,16 @@ class ComAgent:
     def log_communication(self, msg: str, level: str = "info") -> None:
         # Legacy API: пусть пишет через lam_logging
         lam_log(level.lower(), "comm.legacy", msg, message=msg)
+
+    # ─────── credit / backpressure ────────────────────────────────────────────
+    def set_credit(self, agent: str, credits: int) -> None:
+        self._credits[agent] = max(0, int(credits))
+        lam_log("info", "comm.credit", "set", agent=agent, credits=self._credits[agent])
+
+    def add_credit(self, agent: str, delta: int = 1) -> int:
+        self._credits[agent] = max(0, self._credits.get(agent, 0) + int(delta))
+        lam_log("info", "comm.credit", "add", agent=agent, credits=self._credits[agent], delta=int(delta))
+        return self._credits[agent]
+
+    def get_credit(self, agent: str) -> int:
+        return self._credits.get(agent, 0)
