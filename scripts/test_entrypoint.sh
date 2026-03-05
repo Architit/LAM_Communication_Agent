@@ -67,11 +67,14 @@ case "${1:---all}" in
   --p0-safety)
     "$PYTEST_BIN" -q tests/test_phase_f_p0_safety_comm_contract.py tests/test_phase_b_patch_runtime_contract.py
     ;;
+  --research-gate)
+    "$PYTEST_BIN" -q tests/test_phase_r_research_gate_comm_contract.py tests/test_phase_b_patch_runtime_contract.py
+    ;;
   --ci)
     "$PYTEST_BIN" -q tests --maxfail=1
     ;;
   *)
-    echo "usage: $0 [--all|--unit-only|--integration|--governance|--patch-runtime|--memory|--transport|--flow-control|--p0-safety|--ci]"
+    echo "usage: $0 [--all|--unit-only|--integration|--governance|--patch-runtime|--memory|--transport|--flow-control|--p0-safety|--research-gate|--ci]"
     exit 2
     ;;
 esac
