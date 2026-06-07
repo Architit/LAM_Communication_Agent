@@ -1,3 +1,4 @@
+# Copyright (c) 2026-06-07 RADRILONIUMA / TRIANIUMA Kingdom. All rights reserved.
 from __future__ import annotations
 
 from interfaces.com_agent_interface import ComAgent as _QueueComAgent

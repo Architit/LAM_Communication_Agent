@@ -1,3 +1,4 @@
+# Copyright (c) 2026-06-07 RADRILONIUMA / TRIANIUMA Kingdom. All rights reserved.
 """
 Коммуникационный агент LAM (v0.2)
 

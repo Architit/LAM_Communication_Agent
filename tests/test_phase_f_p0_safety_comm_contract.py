@@ -1,3 +1,4 @@
+# Copyright (c) 2026-06-07 RADRILONIUMA / TRIANIUMA Kingdom. All rights reserved.
 from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_phase_f_comm_markers() -> None:
